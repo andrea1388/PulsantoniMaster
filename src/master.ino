@@ -2,6 +2,7 @@
 #include <EEPROM.h>
 #include <Adafruit_GFX.h>    // Core graphics library
 #include <Adafruit_TFTLCD.h> // Hardware-specific library
+#include "Antirimbalzo.h"
 #define DURATACLICKLUNGO 2000 // tempo pressione pulsante per click lungo = 2 secondi
 #define TBACKOUTPULSANTE 100 // tempo blackout pulsante dopo un click
 //stati
@@ -67,15 +68,16 @@ byte numero_slave;
 class Nodo {
   public:
     byte indirizzo;
-    int16_t segnale;
+    unsigned long int oravoto;
+    byte fallimenti;
+    char segnale;
+    Nodo best[5];
     Nodo();
 };
 Nodo::Nodo() { indirizzo=255; segnale=-200;}
 
 class Slave {
   public:
-    unsigned long oravoto;
-    byte fallimenti;
     //byte tensionebatteria;
     //byte rssi;
     bool funzionante;
@@ -88,7 +90,7 @@ Slave::Slave(byte ind) {
   for(byte i=0;i<5;i++) best[i]=0;
 }
 
-Slave** slave;
+Nodo** nodo;
 Slave* best[5];
 
 
@@ -164,6 +166,7 @@ unsigned long t_inizio_voto;
 Nodo* bestn[MAXBESTNEIGHBOURS];
 //LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 
+Antirimbalzo swVoto;
 
 void setup() {
   pinMode(pinPULSANTE, INPUT_PULLUP);
@@ -199,7 +202,11 @@ void setup() {
 
   delay(20);
   radioSetup();
-  slave=(Slave **)malloc(sizeof(Slave)*numero_max_slave);
+  nodo=(Nodo **)malloc(sizeof(&Nodo)*numero_max_slave+1);
+  for (int j=0;j<numero_max_slave+1;j++) {
+    nodo[j]=new Nodo(j+1);
+  }
+  nodo[0].segnale=0; // 0 dBm = fisso forte
   //radio.readAllRegs();
   tft.print(F("Frequenza: "));
   tft.println(radio.getFrequency());
@@ -211,7 +218,8 @@ void setup() {
   for (int i=0;i<MAXBESTNEIGHBOURS;i++) bestn[i]=new Nodo();
   stato.setStato(ZERO);
   radio._printpackets=false;
-
+  swVoto.cbInizioStatoOn=PulsanteClickCorto;
+  ic=1;
 
 }
 // algoritmo 1
@@ -223,8 +231,65 @@ void loop() {
       digitalWrite(LEDBLU, LOW);
   ElaboraPulsante();
   ElaboraStato();
+  swVoto.Elabora(digitalRead(pinPULSANTE)==LOW);
+  Poll();
 }
 
+void Poll() {
+  static unsigned long tlastpoll;
+  if(millis() - tlastpoll > ttrapolls) {
+    tlastpoll=millis();
+    if (timeoutNodoCorrente) ElaboraTimeOutNodoCorrente();
+    // aumenta indirizzo_corrente
+    bool salta;
+    byte iterazioni=0;
+    do {
+      salta=false;
+      iterazioni++;
+      ic++
+      if(ic>numero_max_slave+1) ic=2;
+      //if(nodo[ic].ripetitore) salta=true;
+      if(nodo[ic].fallimenti>maxFallimenti) {nodo[ic].fallimenti--; salta=true;}
+      if(iterazioni>numero_max_slave) return;
+    } while (salta);
+    InterrogaNodoCorrente();
+    timeoutNodoCorrente=true; // viene messo a false se vengono ricevuti i dati
+
+  }
+
+}
+
+void ElaboraTimeOutNodoCorrente() {
+  nodo[ic].fallimenti++;
+  if(nodo[ic].fallimenti>maxFallimenti) nodo[ic].fallimenti=maxFallimenti+numeroSalti;
+}
+
+void InterrogaNodoCorrente() {
+  byte rip=TrovaMigliorRipetitorePerNodo(ic);
+  Pacchetto p;
+  p.dest=ic;
+  p.rip=TrovaMigliorRipetitorePerNodo(ic);
+  p.modovoto=modovoto;
+  Trasmetti(p);
+}
+
+byte TrovaMigliorRipetitorePerNodo(byte dest) {
+
+  if (nodo[dest].fallimenti==0 && nodo[dest].ripetitore!=0) return nodo[dest].ripetitore;
+  byte newrip=0;
+  do {
+    int pmax=0; 
+    for(int j=0;j<numBestSlave;j++)
+    {
+      int p=(128 + nodo[dest].best[j].segnale) * (128 + nodo[nodo[dest].best[j].indirizzo].segnale);
+      if (p>pmax) {pmax=p;newrip=nodo[dest].best[j].indirizzo;}
+    }
+
+  } while (newrip!=nodo[dest].ripetitore);
+  nodo[dest].ripetitore=newrip;
+  return newrip;
+
+}
 void CostruisciListaNodi(byte ind, int sign, byte len) {
     // se il nodo ricevuto è più forte del più debole lo sostituisco con questo
     if(ind<0 || ind >slave[numero_slave-1]->indirizzo) return;
@@ -351,45 +416,6 @@ void ProcessaDatiSeriali() {
 
 }
 
-//algoritmo 3
-void ElaboraPulsante() {
-  static unsigned long inizio_blackout=0, durata_pressione_pulsante=0,inizio_pressione_pulsante=0;
-  static bool first=true;
-  static byte st[10],k=0;
-  unsigned long now=millis();
-  if(digitalRead(pinPULSANTE)==0) st[k++]=1; else st[k++]=0;
-  if(k==10) k=0;
-  int s=0;
-  for(int w=0;w<10;w++) s+=st[w];
-  
-  if(s>8) {
-    //Serial.print("puls: durata, inizio, now: ");
-    if((now-inizio_blackout) > TBACKOUTPULSANTE) {
-      if(first==true) {
-        durata_pressione_pulsante=0;
-        inizio_pressione_pulsante=now; 
-        first=false;
-      } else {
-        durata_pressione_pulsante=now-inizio_pressione_pulsante;
-      }
-      /*
-      Serial.print(durata_pressione_pulsante);
-      Serial.print(" ");
-      Serial.print(inizio_pressione_pulsante);
-      Serial.print(" ");
-      Serial.println(now);
-      */
-    }
-  } else {
-    if(durata_pressione_pulsante>0) {
-      //Serial.println("puls rel");
-      if(durata_pressione_pulsante>DURATACLICKLUNGO) PulsanteClickLungo(); else PulsanteClickCorto();
-      first=true;
-      inizio_blackout=now;
-    }
-    durata_pressione_pulsante=0;
-  }
-}
 
 //algoritmo 4
 void ElaboraStato() {
@@ -479,30 +505,36 @@ void Voto() {
   }
 }
 
+void RadioRx() {
+  if(radio.receiveDone()) {
+    nodo[radio.SENDERID].segnale=radio.RSSI;
+    RxPkt pkt(radio.DATA);
+    if(msg.dest==1) {
+      if(msg.sender==ic) {
+        timeoutNodoCorrente=false;
 
-
-//algoritmo 8
-void PulsanteClickLungo() {
-  //Serial.println("PulsanteClickLungo");
-  if(stato.getStato()==0) {
-    stato.setStato(DISCOVERY);
-  } else if(stato.getStato()==DISCOVERY) stato.setStato(ZERO);
+      }
+    }
+  }
 }
 
-//algoritmo 9
+
+
+
 void PulsanteClickCorto() {
-  //Serial.println("PulsanteClickCorto");
-  byte s=stato.getStato();
-  if(s==DISCOVERY) return;
-  if(s==ZERO) {
-    stato.setStato(INVIASYNC);
-    return;
-  }
-  if(s==VOTO) {
-    tft.println(F("Voto concluso"));
-    stato.setStato(ZERO);
-    return;
-  }
+  modoVoto=!modoVoto;
+  if(modoVoto) InizioVoto(); else FineVoto();
+}
+
+void InizioVoto() {
+  // cancella tutte le ore voto
+  for(int j=1;j<numero_max_slave;j++)
+    nodo[j].oravoto=0;
+  intervallopoll=intervallopollvoto;
+}
+
+void FineVoto() {
+  intervallopoll=intervallopollnormale;
 }
 
 //algoritmo 10
