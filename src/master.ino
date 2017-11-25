@@ -85,13 +85,15 @@ class Slave {
     char segnale;
     Nodo best[5];
     bool nodoripetitore;
+    bool votato;
+    bool sincronizzato;
     byte indirizzoRipetitoreCorrente;
     byte fallimenti;
     Slave(byte);
     ~Slave();
 };
 Slave::Slave(byte ind) {
-  indirizzoRipetitoreCorrente=0;
+  indirizzoRipetitoreCorrente=0; // trasmetti direttamente
   nodoripetitore=false;
   fallimenti=0;
   segnale=-127;
@@ -123,6 +125,7 @@ Antirimbalzo swVoto;
 bool modoVoto;
 unsigned int intervallopollnormale;
 unsigned int intervallopollvoto;
+unsigned long int ttx; // istante della trasmissione (micros)
 
 // eventi comandi seriali
 void serialCmdInizioVoto(int arg_cnt, char **args)
@@ -268,37 +271,38 @@ void Poll() {
 
 void ElaboraTimeOutNodoCorrente() {
   slave[ic]->fallimenti++;
-  if(slave[ic]->fallimenti>maxFallimenti) slave[ic]->fallimenti=maxFallimenti+numeroSalti;
+  if(slave[ic]->fallimenti>maxFallimenti)
+  {
+    slave[ic]->fallimenti=maxFallimenti+numeroSalti;
+    slave[ic]->sincronizzato=false;
+  } 
+  
 }
 
 void InterrogaNodoCorrente() {
-  TxPkt p;
-  p.dest=ic;
-  p.rip=TrovaMigliorRipetitorePerNodo(ic);
-  p.modovoto=modoVoto;
+  TrovaMigliorRipetitorePerNodo(ic);
+  TxPkt p(ic,slave[ic]->indirizzoRipetitoreCorrente,modoVoto);
   Trasmetti(&p);
 }
 
-byte TrovaMigliorRipetitorePerNodo(byte dest) {
-
+void TrovaMigliorRipetitorePerNodo(byte dest) {
+  // se l'ultima trasmissione è andata bene mantiene l'ultimo ripetitore
   if (slave[dest]->fallimenti==0 && slave[dest]->indirizzoRipetitoreCorrente!=0) return slave[dest]->indirizzoRipetitoreCorrente;
-  byte newrip=0;
-  do {
-    int pmax=0; 
-    for(byte j=0;j<numBestSlave;j++)
+  int pmax=0; 
+  for(byte j=0;j<numBestSlave;j++)
+  {
+    if(slave[dest]->best[j].indirizzo!=slave[dest]->indirizzoRipetitoreCorrente)
     {
       int p=(128 + slave[dest]->best[j].segnale) * (128 + slave[slave[dest]->best[j].indirizzo]->segnale);
-      if (p>pmax) {pmax=p;newrip=slave[dest]->best[j].indirizzo;}
+      if (p>pmax) {pmax=p;slave[dest]->indirizzoRipetitoreCorrente=slave[dest]->best[j].indirizzo;}
     }
-
-  } while (newrip!=slave[dest]->indirizzoRipetitoreCorrente);
-  slave[dest]->indirizzoRipetitoreCorrente=newrip;
-  return newrip;
-
+  }
 }
 
 void Trasmetti(TxPkt *p) {
-  radio.send(p->rip,p->dati,p->len,false);
+  byte rip=(p->rip==1) ? p->dest : p->rip:
+  radio.send(rip,p->dati,p->len,false);
+  ttx=micros();
 }
 
 
@@ -310,8 +314,30 @@ void ElaboraRadio() {
     if(msg.destinatario==1) {
       if(msg.mittente==ic) {
         timeoutNodoCorrente=false;
-        slave[ic]->deltat=msg.micros-micros();
-        if(modoVoto) NuovoVotoRicevutoDaSlave(msg.mittente);
+        slave[ic]->fallimenti=0;
+        switch(msg.tipo)
+        {
+          case 1:
+            slave[ic]->deltat=msg.micros-2*micros()-ttx;
+            slave[ic]->batteria=msg.batteria;
+            slave[ic]->sincronizzato=true;
+            break;
+          case 2:
+            for(byte j=0;j<5;j++)
+            {
+              slave[ic]->best[j].indirizzo=msg.indirizzobest[j];
+              slave[ic]->best[j].segnale=msg.segnalebest[j];
+            }
+            break;
+          case 3:
+            slave[ic]->oravoto=msg.micros;
+            slave[ic]->votato=true;
+            if(modoVoto && !slave[ic]->votato) NuovoVotoRicevutoDaSlave(msg.mittente);
+            break;
+          case 4:
+            slave[ic]->votato=false;
+            break;
+        }
       }
     }
   }
@@ -326,9 +352,8 @@ void PulsanteClickCorto() {
 }
 
 void InizioVoto() {
-  // cancella tutte le ore voto
   for(int j=1;j<numero_max_slave;j++)
-    slave[j]->oravoto=0;
+    slave[j]->votato=false;
   ttrapolls=intervallopollvoto;
 }
 
