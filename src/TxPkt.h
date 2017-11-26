@@ -1,7 +1,7 @@
 #include <Arduino.h>
 class TxPkt {
     public:
-        TxPkt(byte mittente, byte destinatario,bool modovoto);
+        TxPkt(byte destinatario,bool modovoto);
         byte *dati;
         byte len;
 

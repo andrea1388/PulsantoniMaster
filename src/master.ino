@@ -105,8 +105,9 @@ bool modoVoto;
 unsigned int intervallopollnormale;
 unsigned int intervallopollvoto;
 unsigned long int ttx; // istante della trasmissione (micros)
-bool stampainfopoll;
-bool stampainfosceltarip;
+bool stampainfopoll=false;
+bool stampainfosceltarip=false;
+bool stampadatiradio=false;
 
 // eventi comandi seriali
 void serialCmdInizioVoto(int arg_cnt, char **args)
@@ -156,6 +157,13 @@ void serialCmdStampaInfoPoll(int arg_cnt, char **args)
   if(arg_cnt!=2) return;
   if(args[1][0]=='0') stampainfopoll=false;
   if(args[1][0]=='1') stampainfopoll=true;
+}
+
+void serialCmdStampaDatiRadio(int arg_cnt, char **args)
+{
+  if(arg_cnt!=2) return;
+  if(args[1][0]=='0') stampadatiradio=false;
+  if(args[1][0]=='1') stampadatiradio=true;
 }
 
 void setup() {
@@ -217,8 +225,7 @@ void setup() {
   cmdAdd("SP", serialCmdStampaPacchettiRadio);
   cmdAdd("IR", serialCmdStampaInfoRouting);
   cmdAdd("IP", serialCmdStampaInfoPoll);
-
-
+  cmdAdd("DR", serialCmdStampaDatiRadio);
 }
 void CreaListaSlave(byte numslave) {
   if (slave) {
@@ -352,9 +359,11 @@ void ElaboraRadio() {
         Serial.print("\t");
         Serial.print(radio.RSSI);
         Serial.print("\t");
-        Serial.print(p);
+        Serial.print(msg.mittente);
         Serial.print("\t");
-        Serial.println(ttx);
+        Serial.print(msg.destinatario);
+        Serial.print("\t");
+        Serial.println(msg.tipo);
     }
     if(msg.destinatario==1) {
       if(msg.mittente==ic) {
@@ -363,24 +372,57 @@ void ElaboraRadio() {
         switch(msg.tipo)
         {
           case 1:
-            slave[ic]->deltat=msg.micros-2*micros()-ttx;
+            slave[ic]->deltat=msg.micros-ttx;
             slave[ic]->batteria=msg.batteria;
             slave[ic]->sincronizzato=true;
+            if (stampadatiradio)
+            {
+              Serial.print("pkt1");
+              Serial.print("\t");
+              Serial.print(msg.micros);
+              Serial.print("\t");
+              Serial.print(msg.batteria);
+              Serial.print("\t");
+              Serial.println(slave[ic]->deltat);
+            }
             break;
           case 2:
+            if (stampadatiradio)
+            {
+              Serial.print("pkt2");
+              Serial.print("\t");
+            }
             for(byte j=0;j<5;j++)
             {
               slave[ic]->best[j].indirizzo=msg.indirizzobest[j];
               slave[ic]->best[j].segnale=msg.segnalebest[j];
+              if (stampadatiradio)
+              {
+                Serial.print(msg.indirizzobest[j]);
+                Serial.print("\t");
+                Serial.println(msg.segnalebest[j]);
+              }
             }
             break;
           case 3:
-            slave[ic]->oravoto=msg.micros;
+            slave[ic]->oravoto=msg.micros-slave[ic]->deltat;
             slave[ic]->votato=true;
             if(modoVoto && !slave[ic]->votato) NuovoVotoRicevutoDaSlave(msg.mittente);
+            if (stampadatiradio)
+            {
+              Serial.print("pkt3");
+              Serial.print("\t");
+              Serial.println(msg.micros);
+              Serial.print("\t");
+              Serial.println(slave[ic]->oravoto);
+            }
             break;
           case 4:
             slave[ic]->votato=false;
+            if (stampadatiradio)
+            {
+              Serial.println("pkt4");
+            }
             break;
         }
       }
@@ -414,11 +456,14 @@ void FineVoto() {
 
 void NuovoVotoRicevutoDaSlave(byte ind) {
 
-  for(int y=0;y<5;y++) 
+  for(byte y=0;y<5;y++) 
     if(slave[ind]->oravoto<best[y]->oravoto)
     {
+      for(byte k=4;k>y;k--)
+        best[k]=best[k-1];
       best[y]=slave[ind];
       MostraRisultatiVoto();
+      break;
     }
 }
 
@@ -520,17 +565,5 @@ void MostraRisultatiVoto() {
   tft.println();
 }
 
-void stampapkt(byte *pkt,int len) {
-  Serial.print("millis:");
-  Serial.print(millis());
-  Serial.print("len:");
-  Serial.print(len);
-  Serial.print("pkt:");
-  for (int i=0;i<len;i++) {
-    Serial.print(pkt[i],HEX);
-    Serial.print(":");
-  }
-  Serial.println();
-    
-}
+
 

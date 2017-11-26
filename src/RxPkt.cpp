@@ -21,7 +21,6 @@ RxPkt::RxPkt(byte *dati,byte len) {
             break;
         case 3:
             micros=*((unsigned long int*)dati[3]);
-            batteria=dati[7];
             break;
         case 4:
             micros=*((unsigned long int*)dati[3]);
