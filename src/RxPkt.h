@@ -10,5 +10,5 @@ class RxPkt {
         byte segnalebest[5];
         byte tipo;
         byte batteria;
-        RxPkt(char *,byte);
+        RxPkt(byte *,byte);
 };

@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "RxPkt.h"
 
-RxPkt::RxPkt(char *dati,byte len) {
+RxPkt::RxPkt(byte *dati,byte len) {
     if(len<3) return;
     mittente=dati[0];
     destinatario=dati[1];

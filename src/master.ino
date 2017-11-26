@@ -6,18 +6,9 @@
 #include "Antirimbalzo.h"
 #include "TxPkt.h"
 #include "RxPkt.h"
+#include <SPI.h>
 
-#define DURATACLICKLUNGO 2000 // tempo pressione pulsante per click lungo = 2 secondi
-#define TBACKOUTPULSANTE 100 // tempo blackout pulsante dopo un click
-//stati
-#define ZERO 0 // stato iniziale
-#define DISCOVERY 1 // discovery: cerca gli slave presenti in rete
-#define INVIASYNC 2 // pre voto. Invia l'ora del master a tutti gli slave svovati con discovery
-#define VOTO 3 // fase di acquisizione dei voti e display risultati
-// stati slave
-#define FUORISYNC 1
-#define VOTATO 2
-#define NONVOTATO 3
+
 
 // parametri radio
 #define NETWORKID 27
@@ -26,9 +17,7 @@
 #define RFM69_IRQ 21
 #define RFM69_IRQN 2 
 #define RFM69_RST 49
-// stati per elaborazione seriale
-#define COMANDO 0
-#define VALORE 1
+
 // dati display
 #define LCD_CS A3 // Chip Select goes to Analog 3
 #define LCD_CD A2 // Command/Data goes to Analog 2
@@ -48,24 +37,15 @@
 
 
 
-Adafruit_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET);
+
 
 
 #define LEDVERDE 41
 #define LEDROSSO 43
 #define LEDBLU   45
 #define pinPULSANTE 47
-/*
-class Display {
-	public:
-		Display(rs, enable, d4, d5, d6, d7);
-		Print(char *);
-		
-}
-Display::Print(char* s) {
-	
-}
-*/
+#define numBestSlave 5 // numero di best che lo slave manda al master
+
 
 
 
@@ -89,6 +69,7 @@ class Slave {
     bool sincronizzato;
     byte indirizzoRipetitoreCorrente;
     byte fallimenti;
+    byte batteria;
     Slave(byte);
     ~Slave();
 };
@@ -98,27 +79,25 @@ Slave::Slave(byte ind) {
   fallimenti=0;
   segnale=-127;
   indirizzo=ind;
+  oravoto=0;
 }
 Slave::~Slave() {
 
 }
 
 
-
+// variabili globali
+Adafruit_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET);
 RFM69 radio(RFM69_CS,RFM69_IRQ,true,RFM69_IRQN);
 byte numero_max_slave;
 byte ic; // indirizzo slave corrente
 unsigned long t_inizio_voto;
 unsigned int ttrapolls; // millisecondi tra un poll e quello dello slave successivo
-#define MAXBESTNEIGHBOURS 5
-Nodo* bestn[MAXBESTNEIGHBOURS];
 bool timeoutNodoCorrente; // indica se il poll allo slave corrente fallisce
-//LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 byte maxFallimenti; // numero max di fallimenti oltre il quale è dichiarato morto
-#define numBestSlave 5 // numero di best che lo slave manda al master
 byte numeroSalti; // numero di volte che il poll viene saltato quando è dichiarato morto
 Slave** slave;
-Slave* best[5];
+Slave* best[5]; // gli slave con votazioni migliori
 byte numero_votati,indirizzo_slave_discovery;
 byte numero_slave;
 Antirimbalzo swVoto;
@@ -126,6 +105,8 @@ bool modoVoto;
 unsigned int intervallopollnormale;
 unsigned int intervallopollvoto;
 unsigned long int ttx; // istante della trasmissione (micros)
+bool stampainfopoll;
+bool stampainfosceltarip;
 
 // eventi comandi seriali
 void serialCmdInizioVoto(int arg_cnt, char **args)
@@ -161,6 +142,20 @@ void serialCmdStampaPacchettiRadio(int arg_cnt, char **args)
   radio._printpackets=!radio._printpackets;
   Serial.print(F("stampapacchetti: "));
   Serial.println(radio._printpackets);  
+}
+
+void serialCmdStampaInfoRouting(int arg_cnt, char **args)
+{
+  if(arg_cnt!=2) return;
+  if(args[1][0]=='0') stampainfosceltarip=false;
+  if(args[1][0]=='1') stampainfosceltarip=true;
+}
+
+void serialCmdStampaInfoPoll(int arg_cnt, char **args)
+{
+  if(arg_cnt!=2) return;
+  if(args[1][0]=='0') stampainfopoll=false;
+  if(args[1][0]=='1') stampainfopoll=true;
 }
 
 void setup() {
@@ -205,7 +200,6 @@ void setup() {
   tft.println(F("Click corto: Voto"));
   tft.println(F("Effettuare il Discovery"));
   tft.println();
-  for (int i=0;i<MAXBESTNEIGHBOURS;i++) bestn[i]=new Nodo();
   radio._printpackets=false;
   swVoto.cbInizioStatoOn=PulsanteClickCorto;
   ic=1;
@@ -220,7 +214,9 @@ void setup() {
   cmdAdd("Q", serialCmdFineVoto);
   cmdAdd("S", serialCmdMemorizzaNumSlave);
   cmdAdd("N", serialCmdLeggiNumSlave);
-  cmdAdd("P", serialCmdStampaPacchettiRadio);
+  cmdAdd("SP", serialCmdStampaPacchettiRadio);
+  cmdAdd("IR", serialCmdStampaInfoRouting);
+  cmdAdd("IP", serialCmdStampaInfoPoll);
 
 
 }
@@ -261,6 +257,18 @@ void Poll() {
       //if(slave[ic]->ripetitore) salta=true;
       if(slave[ic]->fallimenti>maxFallimenti) {slave[ic]->fallimenti--; salta=true;}
       if(iterazioni>numero_max_slave) return;
+      if(modoVoto && !slave[ic]->sincronizzato) salta=true;
+      if(stampainfopoll & salta) 
+      {
+        Serial.print("salto");
+        Serial.print("\t");
+        Serial.print(ic);
+        Serial.print("\t");
+        Serial.print(slave[ic]->fallimenti);
+        Serial.print("\t");
+        Serial.println(slave[ic]->sincronizzato);
+      }
+
     } while (salta);
     InterrogaNodoCorrente();
     timeoutNodoCorrente=true; // viene messo a false se vengono ricevuti i dati
@@ -281,36 +289,73 @@ void ElaboraTimeOutNodoCorrente() {
 
 void InterrogaNodoCorrente() {
   TrovaMigliorRipetitorePerNodo(ic);
-  TxPkt p(ic,slave[ic]->indirizzoRipetitoreCorrente,modoVoto);
-  Trasmetti(&p);
+  TxPkt p(1,ic,modoVoto);
+  byte rip=(slave[ic]->indirizzoRipetitoreCorrente==1) ? ic : slave[ic]->indirizzoRipetitoreCorrente;
+  radio.send(rip,p.dati,p.len,false);
+  ttx=micros();
+    if(stampainfopoll) 
+    {
+      Serial.print("poll");
+      Serial.print("\t");
+      Serial.print(ic);
+      Serial.print("\t");
+      Serial.print(rip);
+      Serial.print("\t");
+      Serial.println(ttx);
+    }
 }
 
 void TrovaMigliorRipetitorePerNodo(byte dest) {
   // se l'ultima trasmissione è andata bene mantiene l'ultimo ripetitore
-  if (slave[dest]->fallimenti==0 && slave[dest]->indirizzoRipetitoreCorrente!=0) return slave[dest]->indirizzoRipetitoreCorrente;
+  if (slave[dest]->fallimenti==0 && slave[dest]->indirizzoRipetitoreCorrente!=0) return;
   int pmax=0; 
   for(byte j=0;j<numBestSlave;j++)
   {
     if(slave[dest]->best[j].indirizzo!=slave[dest]->indirizzoRipetitoreCorrente)
     {
       int p=(128 + slave[dest]->best[j].segnale) * (128 + slave[slave[dest]->best[j].indirizzo]->segnale);
-      if (p>pmax) {pmax=p;slave[dest]->indirizzoRipetitoreCorrente=slave[dest]->best[j].indirizzo;}
+      if(stampainfosceltarip)
+      {
+        Serial.print("sceltarip");
+        Serial.print("\t");
+        Serial.print(slave[dest]->best[j].indirizzo);
+        Serial.print("\t");
+        Serial.print(slave[dest]->best[j].segnale);
+        Serial.print("\t");
+        Serial.print(slave[slave[dest]->best[j].indirizzo]->segnale);
+        Serial.print("\t");
+        Serial.print(p);
+        Serial.print("\t");
+        Serial.println(ttx);
+      }
+      if (p>pmax) 
+      {
+        pmax=p;
+        slave[dest]->indirizzoRipetitoreCorrente=slave[dest]->best[j].indirizzo;
+      }
     }
   }
 }
-
-void Trasmetti(TxPkt *p) {
-  byte rip=(p->rip==1) ? p->dest : p->rip:
-  radio.send(rip,p->dati,p->len,false);
-  ttx=micros();
-}
-
 
 
 void ElaboraRadio() {
   if(radio.receiveDone()) {
     slave[radio.SENDERID]->segnale=radio.RSSI;
-    RxPkt msg(radio.DATA,radio.DATALEN);
+    RxPkt msg((byte *)radio.DATA,radio.DATALEN);
+    if (stampadatiradio)
+    {
+        Serial.print("radio");
+        Serial.print("\t");
+        Serial.print(radio.SENDERID);
+        Serial.print("\t");
+        Serial.print(radio.TARGETID);
+        Serial.print("\t");
+        Serial.print(radio.RSSI);
+        Serial.print("\t");
+        Serial.print(p);
+        Serial.print("\t");
+        Serial.println(ttx);
+    }
     if(msg.destinatario==1) {
       if(msg.mittente==ic) {
         timeoutNodoCorrente=false;
@@ -352,9 +397,15 @@ void PulsanteClickCorto() {
 }
 
 void InizioVoto() {
-  for(int j=1;j<numero_max_slave;j++)
+  bool ok=true;
+  byte j;
+  for(j=1;j<numero_max_slave;j++) 
+  {
     slave[j]->votato=false;
+  }
   ttrapolls=intervallopollvoto;
+  for(j=0;j<5;j++)
+    best[j]=slave[1]; 
 }
 
 void FineVoto() {
@@ -363,6 +414,12 @@ void FineVoto() {
 
 void NuovoVotoRicevutoDaSlave(byte ind) {
 
+  for(int y=0;y<5;y++) 
+    if(slave[ind]->oravoto<best[y]->oravoto)
+    {
+      best[y]=slave[ind];
+      MostraRisultatiVoto();
+    }
 }
 
 
@@ -373,7 +430,7 @@ void AggiornaDisplayKo() {
   tft.setTextColor(RED);
   tft.setCursor(0, 205);
   for (int i=0;i<numero_slave;i++) {
-    if(slave[i]->fallimenti>maxFallimenti) {
+    if(!slave[i]->sincronizzato) {
       tft.print(i);
       tft.print(" ");
     }
