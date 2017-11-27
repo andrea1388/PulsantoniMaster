@@ -74,7 +74,7 @@ class Slave {
     ~Slave();
 };
 Slave::Slave(byte ind) {
-  indirizzoRipetitoreCorrente=0; // trasmetti direttamente
+  indirizzoRipetitoreCorrente=1; // trasmetti direttamente
   nodoripetitore=false;
   fallimenti=0;
   segnale=-127;
@@ -140,9 +140,9 @@ void serialCmdLeggiNumSlave(int arg_cnt, char **args)
 
 void serialCmdStampaPacchettiRadio(int arg_cnt, char **args)
 {
-  radio._printpackets=!radio._printpackets;
-  Serial.print(F("stampapacchetti: "));
-  Serial.println(radio._printpackets);  
+  if(arg_cnt!=2) return;
+  if(args[1][0]=='0') radio._printpackets=false;
+  if(args[1][0]=='1') radio._printpackets=true;
 }
 
 void serialCmdStampaInfoRouting(int arg_cnt, char **args)
@@ -226,6 +226,8 @@ void setup() {
   cmdAdd("IR", serialCmdStampaInfoRouting);
   cmdAdd("IP", serialCmdStampaInfoPoll);
   cmdAdd("DR", serialCmdStampaDatiRadio);
+
+  randomSeed(analogRead(0));
 }
 void CreaListaSlave(byte numslave) {
   if (slave) {
@@ -234,8 +236,8 @@ void CreaListaSlave(byte numslave) {
     }
     free(slave);   
   }
-  slave=(Slave **)malloc(sizeof(Slave*)*numslave+1);
-  for (int j=1;j<numslave+1;j++) {
+  slave=(Slave **)malloc(sizeof(Slave*)*numslave+2);
+  for (int j=1;j<numslave+2;j++) {
     slave[j]=new Slave(j);
   }
   slave[1]->segnale=0; // 0 dBm = fisso forte
@@ -245,6 +247,7 @@ void CreaListaSlave(byte numslave) {
 void loop() {
   swVoto.Elabora(digitalRead(pinPULSANTE)==LOW);
   Poll();
+  cmdPoll();
   ElaboraRadio();
 }
 
@@ -262,7 +265,7 @@ void Poll() {
       ic++;
       if(ic>numero_max_slave+1) ic=2;
       //if(slave[ic]->ripetitore) salta=true;
-      if(slave[ic]->fallimenti>maxFallimenti) {slave[ic]->fallimenti--; salta=true;}
+      if(slave[ic]->fallimenti>maxFallimenti) {if(random(300)>220) salta=true;}
       if(iterazioni>numero_max_slave) return;
       if(modoVoto && !slave[ic]->sincronizzato) salta=true;
       if(stampainfopoll & salta) 
@@ -296,7 +299,7 @@ void ElaboraTimeOutNodoCorrente() {
 
 void InterrogaNodoCorrente() {
   TrovaMigliorRipetitorePerNodo(ic);
-  TxPkt p(1,ic,modoVoto);
+  TxPkt p(ic,modoVoto);
   byte rip=(slave[ic]->indirizzoRipetitoreCorrente==1) ? ic : slave[ic]->indirizzoRipetitoreCorrente;
   radio.send(rip,p.dati,p.len,false);
   ttx=micros();
@@ -314,8 +317,9 @@ void InterrogaNodoCorrente() {
 
 void TrovaMigliorRipetitorePerNodo(byte dest) {
   // se l'ultima trasmissione è andata bene mantiene l'ultimo ripetitore
-  if (slave[dest]->fallimenti==0 && slave[dest]->indirizzoRipetitoreCorrente!=0) return;
+  if (slave[dest]->fallimenti==0) return;
   int pmax=0; 
+  slave[dest]->indirizzoRipetitoreCorrente=1;
   for(byte j=0;j<numBestSlave;j++)
   {
     if(slave[dest]->best[j].indirizzo!=slave[dest]->indirizzoRipetitoreCorrente)
