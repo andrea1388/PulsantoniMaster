@@ -80,9 +80,13 @@ Slave::Slave(byte ind) {
   segnale=-127;
   indirizzo=ind;
   oravoto=0;
+  for(byte i=0;i<5;i++)
+  {
+    best[i].segnale=-127;
+    best[i].indirizzo=0;
+  }
 }
 Slave::~Slave() {
-
 }
 
 
@@ -322,27 +326,32 @@ void TrovaMigliorRipetitorePerNodo(byte dest) {
   slave[dest]->indirizzoRipetitoreCorrente=1;
   for(byte j=0;j<numBestSlave;j++)
   {
-    if(slave[dest]->best[j].indirizzo!=slave[dest]->indirizzoRipetitoreCorrente)
-    {
-      int p=(128 + slave[dest]->best[j].segnale) * (128 + slave[slave[dest]->best[j].indirizzo]->segnale);
-      if(stampainfosceltarip)
+    if(slave[dest]->best[j].indirizzo!=0) {
+      if(slave[slave[dest]->best[j].indirizzo]->fallimenti==0) 
       {
-        Serial.print("sceltarip");
-        Serial.print("\t");
-        Serial.print(slave[dest]->best[j].indirizzo);
-        Serial.print("\t");
-        Serial.print(slave[dest]->best[j].segnale);
-        Serial.print("\t");
-        Serial.print(slave[slave[dest]->best[j].indirizzo]->segnale);
-        Serial.print("\t");
-        Serial.print(p);
-        Serial.print("\t");
-        Serial.println(ttx);
-      }
-      if (p>pmax) 
-      {
-        pmax=p;
-        slave[dest]->indirizzoRipetitoreCorrente=slave[dest]->best[j].indirizzo;
+        if(slave[dest]->best[j].indirizzo!=slave[dest]->indirizzoRipetitoreCorrente)
+        {
+          int p=(128 + slave[dest]->best[j].segnale) * (128 + slave[slave[dest]->best[j].indirizzo]->segnale);
+          if(stampainfosceltarip)
+          {
+            Serial.print("sceltarip");
+            Serial.print("\t");
+            Serial.print(slave[dest]->best[j].indirizzo);
+            Serial.print("\t");
+            Serial.print(slave[dest]->best[j].segnale);
+            Serial.print("\t");
+            Serial.print(slave[slave[dest]->best[j].indirizzo]->segnale);
+            Serial.print("\t");
+            Serial.print(p);
+            Serial.print("\t");
+            Serial.println(ttx);
+          }
+          if (p>pmax) 
+          {
+            pmax=p;
+            slave[dest]->indirizzoRipetitoreCorrente=slave[dest]->best[j].indirizzo;
+          }
+        }
       }
     }
   }
@@ -450,25 +459,36 @@ void InizioVoto() {
     slave[j]->votato=false;
   }
   ttrapolls=intervallopollvoto;
-  for(j=0;j<5;j++)
-    best[j]=slave[1]; 
+  for(j=0;j<5;j++) 
+  {
+    best[j]=0;
+  }
 }
 
 void FineVoto() {
   ttrapolls=intervallopollnormale;
 }
 
-void NuovoVotoRicevutoDaSlave(byte ind) {
-
-  for(byte y=0;y<5;y++) 
-    if(slave[ind]->oravoto<best[y]->oravoto)
+void NuovoVotoRicevutoDaSlave(byte i) {
+  for(int y=0;y<5;y++) {
+    if(best[y]==0) 
     {
-      for(byte k=4;k>y;k--)
-        best[k]=best[k-1];
-      best[y]=slave[ind];
+      best[y]=slave[i];
       MostraRisultatiVoto();
       break;
     }
+    else {
+      if(slave[i]->oravoto<best[y]->oravoto) 
+      {
+        for(int f=4;f>y;f--)
+              best[f]=best[f-1];
+        best[y]=slave[i];
+        MostraRisultatiVoto();
+        break;
+      }
+    }
+  }
+
 }
 
 
