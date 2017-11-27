@@ -23,7 +23,7 @@ RxPkt::RxPkt(byte *dati,byte len) {
             micros=*((unsigned long int*)dati[3]);
             break;
         case 4:
-            micros=*((unsigned long int*)dati[3]);
+            micros=*((unsigned long int*)dati[4]);
             break;
     }
 

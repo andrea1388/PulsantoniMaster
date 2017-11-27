@@ -133,6 +133,7 @@ void serialCmdMemorizzaNumSlave(int arg_cnt, char **args)
       CreaListaSlave(nums);
       Serial.print(F("e numero memorizzato: "));
       Serial.println(nums);
+      ic=2;
     }
 }
 
@@ -269,7 +270,7 @@ void Poll() {
       ic++;
       if(ic>numero_max_slave+1) ic=2;
       //if(slave[ic]->ripetitore) salta=true;
-      if(slave[ic]->fallimenti>maxFallimenti) {if(random(300)>220) salta=true;}
+      if(slave[ic]->fallimenti>maxFallimenti) {if(random(300)>50) salta=true;};
       if(iterazioni>numero_max_slave) return;
       if(modoVoto && !slave[ic]->sincronizzato) salta=true;
       if(stampainfopoll & salta) 
@@ -303,7 +304,7 @@ void ElaboraTimeOutNodoCorrente() {
 
 void InterrogaNodoCorrente() {
   TrovaMigliorRipetitorePerNodo(ic);
-  TxPkt p(ic,modoVoto);
+  TxPkt p(1,ic,modoVoto);
   byte rip=(slave[ic]->indirizzoRipetitoreCorrente==1) ? ic : slave[ic]->indirizzoRipetitoreCorrente;
   radio.send(rip,p.dati,p.len,false);
   ttx=micros();
@@ -314,6 +315,8 @@ void InterrogaNodoCorrente() {
       Serial.print(ic);
       Serial.print("\t");
       Serial.print(rip);
+      Serial.print("\t");
+      Serial.print(slave[ic]->fallimenti);
       Serial.print("\t");
       Serial.println(ttx);
     }
@@ -452,7 +455,6 @@ void PulsanteClickCorto() {
 }
 
 void InizioVoto() {
-  bool ok=true;
   byte j;
   for(j=1;j<numero_max_slave;j++) 
   {
@@ -519,7 +521,7 @@ void radioSetup() {
   delay(100);
   digitalWrite(RFM69_RST, LOW); 
   delay(100);
-  radio.initialize(RF69_868MHZ,0,NETWORKID);
+  radio.initialize(RF69_868MHZ,1,NETWORKID);
   /*
   radio.writeReg(0x03,0x0D); // 9k6
   radio.writeReg(0x04,0x05);
