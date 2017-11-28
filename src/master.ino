@@ -223,14 +223,14 @@ void setup() {
   intervallopollvoto=1;
 
   cmdInit(&Serial);
-  cmdAdd("Z", serialCmdInizioVoto);
-  cmdAdd("Q", serialCmdFineVoto);
-  cmdAdd("S", serialCmdMemorizzaNumSlave);
-  cmdAdd("N", serialCmdLeggiNumSlave);
-  cmdAdd("SP", serialCmdStampaPacchettiRadio);
-  cmdAdd("IR", serialCmdStampaInfoRouting);
-  cmdAdd("IP", serialCmdStampaInfoPoll);
-  cmdAdd("DR", serialCmdStampaDatiRadio);
+  cmdAdd("z", serialCmdInizioVoto);
+  cmdAdd("q", serialCmdFineVoto);
+  cmdAdd("s", serialCmdMemorizzaNumSlave);
+  cmdAdd("n", serialCmdLeggiNumSlave);
+  cmdAdd("ip", serialCmdStampaPacchettiRadio);
+  cmdAdd("ir", serialCmdStampaInfoRouting);
+  cmdAdd("io", serialCmdStampaInfoPoll);
+  cmdAdd("ia", serialCmdStampaDatiRadio);
 
   randomSeed(analogRead(0));
 }
@@ -341,9 +341,9 @@ void TrovaMigliorRipetitorePerNodo(byte dest) {
             Serial.print("\t");
             Serial.print(slave[dest]->best[j].indirizzo);
             Serial.print("\t");
-            Serial.print(slave[dest]->best[j].segnale);
+            Serial.print(slave[dest]->best[j].segnale,DEC);
             Serial.print("\t");
-            Serial.print(slave[slave[dest]->best[j].indirizzo]->segnale);
+            Serial.print(slave[slave[dest]->best[j].indirizzo]->segnale,DEC);
             Serial.print("\t");
             Serial.print(p);
             Serial.print("\t");
@@ -416,7 +416,7 @@ void ElaboraRadio() {
               {
                 Serial.print(msg.indirizzobest[j]);
                 Serial.print("\t");
-                Serial.println(msg.segnalebest[j]);
+                Serial.println(msg.segnalebest[j],DEC);
               }
             }
             break;
