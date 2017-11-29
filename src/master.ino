@@ -89,8 +89,10 @@ Slave::Slave(byte ind) {
 Slave::~Slave() {
 }
 
+typedef enum {ZERO, POLLING, VOTO, FINEVOTO} valoristato;
 
 // variabili globali
+valoristato stato;
 Adafruit_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET);
 RFM69 radio(RFM69_CS,RFM69_IRQ,true,RFM69_IRQN);
 byte numero_max_slave;
@@ -105,7 +107,6 @@ Slave* best[5]; // gli slave con votazioni migliori
 byte numero_votati,indirizzo_slave_discovery;
 byte numero_slave;
 Antirimbalzo swVoto;
-bool modoVoto;
 unsigned int intervallopollnormale;
 unsigned int intervallopollvoto;
 unsigned long int ttx; // istante della trasmissione (micros)
@@ -220,6 +221,7 @@ void setup() {
   numeroSalti=10;
   intervallopollnormale=1000;
   intervallopollvoto=1;
+  stato=ZERO;
 
   cmdInit(&Serial);
   cmdAdd("Z", serialCmdInizioVoto);
@@ -444,8 +446,23 @@ void ElaboraRadio() {
 
 
 void PulsanteClickCorto() {
-  modoVoto=!modoVoto;
-  if(modoVoto) InizioVoto(); else FineVoto();
+  switch(stato)
+  {
+    case ZERO:
+      stato=POLLING;
+      break;
+    case POLLING:
+      stato=VOTO;
+      InizioVoto();
+      break;
+    case VOTO:
+      stato=FINEVOTO;
+      FineVoto();
+      break;
+    case FINEVOTO:
+      stato=ZERO;
+      break;
+  }
 }
 
 void InizioVoto() {
@@ -505,6 +522,27 @@ void AggiornaDisplayKo() {
   tft.setCursor(x, y);  
 }
 
+void MostraStatoSlave() 
+{
+  tft.fillScreen(COLORESFONDO);
+  tft.setCursor(0, 0);
+  tft.println(F("Stato Slave"));
+  for (int i=0;i<numero_slave;i++)
+  {
+    if(!slave[i]->sincronizzato)
+    {
+      tft.setTextColor(COLORETESTONORMALE);
+      tft.print(indirizzo_slave_discovery);
+      tft.print(" ");
+    }
+    else
+    {
+      tft.setTextColor(RED);
+      tft.print(indirizzo_slave_discovery);
+      tft.print(" ");
+    }
+  }  
+}
 
 
 
