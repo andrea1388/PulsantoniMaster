@@ -6,7 +6,7 @@
             "request": "launch",
             "cwd": "${workspaceRoot}",
             "name": "PlatformIO Debugger",
-            "target": "/Users/andreacarrara/Documents/PulsantoniMaster/.pioenvs/megaatmega2560/firmware.elf",
+            "target": "/Volumes/Macintosh HD/Users/andrea/Google Drive/Personale/lavori/Pulsantoni/PulsantoniMaster/.pioenvs/megaatmega2560/firmware.elf",
             "gdbpath": "/Users/andreacarrara/.platformio/penv/bin/piodebuggdb",
             "autorun": [ "source .pioinit" ]
         }
