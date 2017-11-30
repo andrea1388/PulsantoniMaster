@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include "TxPkt.h"
 TxPkt::TxPkt(byte mittente, byte destinatario,bool modovoto) {
-    dati=new byte[3];
     dati[0]=mittente;
     dati[1]=destinatario;
     dati[2]=(modovoto == true) ? 0xaa : 0x55;
