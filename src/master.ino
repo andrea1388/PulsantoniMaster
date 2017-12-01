@@ -61,7 +61,7 @@ class Slave {
   public:
     byte indirizzo;
     unsigned long oravoto;
-    unsigned long deltat;
+    long deltat;
     char segnale;
     Nodo best[5];
     bool nodoripetitore;
@@ -112,6 +112,8 @@ unsigned long int ttx; // istante della trasmissione (micros)
 bool stampainfopoll=false;
 bool stampainfosceltarip=false;
 bool stampadatiradio=false;
+bool displaypollingDaAggiornare;
+byte numerocicli; // in modo voto concluso fa alcuni giri per comunicare la fine voto
 
 // eventi comandi seriali
 void serialCmdInizioVoto(int arg_cnt, char **args)
@@ -197,11 +199,12 @@ void setup() {
   //radio.readAllRegs();
   radio._printpackets=false;
   swVoto.cbInizioStatoOn=PulsanteClickCorto;
+  swVoto.tPeriodoBlackOut=50;
   ttrapolls=1000;
   maxFallimenti=10;
   numeroSalti=10;
   intervallopollnormale=1000;
-  intervallopollvoto=10;
+  intervallopollvoto=100;
   stato=ZERO;
   StatoZero();
 
@@ -234,12 +237,13 @@ void CreaListaSlave(byte numslave) {
 }
 void loop() {
   swVoto.Elabora(digitalRead(pinPULSANTE)==LOW);
-  if(stato==VOTO || stato==POLLING)
+  if(stato==POLLING || stato==VOTO || (stato==FINEVOTO && numerocicli>0))
   {
     Poll();
     ElaboraRadio();
   } 
   cmdPoll();
+  if(stato==POLLING && displaypollingDaAggiornare) AggiornaDisplayPolling();
 }
 
 void Poll() {
@@ -254,7 +258,7 @@ void Poll() {
       salta=false;
       iterazioni++;
       ic++;
-      if(ic>numero_max_slave+1) ic=2;
+      if(ic>numero_max_slave+1) {ic=2; if(numerocicli>0) numerocicli--;}
       //if(slave[ic]->ripetitore) salta=true;
       if(slave[ic]->fallimenti>maxFallimenti) {if(random(300)>50) salta=true;};
       if(iterazioni>numero_max_slave) return;
@@ -271,7 +275,7 @@ void Poll() {
     } while (salta);
     InterrogaNodoCorrente();
     timeoutNodoCorrente=true; // viene messo a false se vengono ricevuti i dati
-    //if (stato==POLLING) AggiornaDisplayPolling();
+    //if (stato==POLLING) displaypollingDaAggiornare=true;
 
   }
 
@@ -279,7 +283,7 @@ void Poll() {
 
 void ElaboraTimeOutNodoCorrente() {
   slave[ic]->fallimenti++;
-  if(slave[ic]->fallimenti==1 && stato==POLLING) AggiornaDisplayPolling();
+  if(slave[ic]->fallimenti==1) displaypollingDaAggiornare=true;
   if(slave[ic]->fallimenti>maxFallimenti)
   {
     slave[ic]->fallimenti=maxFallimenti+numeroSalti;
@@ -373,7 +377,7 @@ void ElaboraRadio() {
     if(msg.destinatario==1) {
       if(msg.mittente==ic) {
         timeoutNodoCorrente=false;
-        if(slave[ic]->fallimenti>0 && stato==POLLING) {slave[ic]->fallimenti=0; AggiornaDisplayPolling();}
+        if(slave[ic]->fallimenti>0) {displaypollingDaAggiornare=true;}
         slave[ic]->fallimenti=0;
         switch(msg.tipo)
         {
@@ -381,6 +385,7 @@ void ElaboraRadio() {
             // lo slave è in modo nonvoto e invia info sync e batteria
             slave[ic]->deltat=msg.micros-ttx;
             slave[ic]->batteria=msg.batteria;
+            if(!slave[ic]->sincronizzato) displaypollingDaAggiornare=true;
             slave[ic]->sincronizzato=true;
             if (stampadatiradio)
             {
@@ -414,7 +419,7 @@ void ElaboraRadio() {
             break;
           case 3:
             // lo slave è in modo voto e ha votato
-            slave[ic]->oravoto=msg.micros-slave[ic]->deltat;
+            slave[ic]->oravoto=msg.micros-slave[ic]->deltat-t_inizio_voto;
             if(stato==VOTO && !slave[ic]->votato) {slave[ic]->votato=true; NuovoVotoRicevutoDaSlave(msg.mittente);}
             if (stampadatiradio)
             {
@@ -500,7 +505,9 @@ void InizioVoto() {
   tft.fillScreen(COLORESFONDO);
   tft.setCursor(0, 0);
   tft.setTextSize(2);
-  tft.print(F("Risultati Voto:\n"));
+  tft.print(F("Voto in corso:\n"));
+  t_inizio_voto=micros();
+  displaypollingDaAggiornare=false;
 }
 
 void PollingIniziato()
@@ -518,10 +525,18 @@ void PollingIniziato()
     slave[j]->fallimenti=0;
     slave[j]->sincronizzato=false;
   }
+  displaypollingDaAggiornare=true;
 
 }
 
 void FineVoto() {
+  tft.fillRect(0,0,320,16,COLORESFONDO);
+  tft.setCursor(0, 0);
+  tft.setTextSize(2);
+  tft.print(F("Voto concluso:\n"));
+  ttrapolls=intervallopollnormale;
+  numerocicli=30;
+
 }
 
 void NuovoVotoRicevutoDaSlave(byte i) {
@@ -585,13 +600,14 @@ void AggiornaDisplayPolling() {
     } 
     else
     {
-      if(slave[i]->indirizzoRipetitoreCorrente==1) tft.setTextColor(GREEN); 
-      else tft.setTextColor(YELLOW);
+      if(!slave[i]->sincronizzato) tft.setTextColor(GREEN); 
+      else tft.setTextColor(BLUE);
     }
     if(slave[i]->nodoripetitore) tft.setTextColor(CYAN);
     tft.print(slave[i]->indirizzo);
     tft.print(" ");
   }
+  displaypollingDaAggiornare=false;
 }
 
 
@@ -599,12 +615,12 @@ void AggiornaDisplayPolling() {
 // chiamato ad ogni giro di poll
 void MostraRisultatiVoto() {
   tft.fillRect(0,17,320,223,COLORESFONDO);
-  tft.setCursor(0, 17);
+  tft.setCursor(0, 18);
   tft.setTextSize(3);
   for(int f=0;f<5;f++) {
     
     if(slavemigliorvoto[f]!=0) {
-      if(f==0) tft.setTextColor(RED);  else tft.setTextColor(CYAN);  
+      if(f==0) tft.setTextColor(GREEN);  else tft.setTextColor(BLUE);  
       int ovi=slavemigliorvoto[f]->oravoto/1000000;
       int ovd=(slavemigliorvoto[f]->oravoto-ovi*1000000)/100;
       char str[25];
