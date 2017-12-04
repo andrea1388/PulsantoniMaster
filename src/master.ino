@@ -302,7 +302,12 @@ void Poll() {
 
 void ElaboraTimeOutNodoCorrente() {
   slave[ic]->fallimenti++;
-  if(slave[ic]->fallimenti==4) displaypollingDaAggiornare=true;
+  if(slave[ic]->fallimenti==4)
+  {
+    displaypollingDaAggiornare=true;  
+    Serial.print("J ");
+    Serial.println(ic);
+  } 
   if(slave[ic]->fallimenti>maxFallimenti)
   {
     slave[ic]->fallimenti=maxFallimenti+numeroSalti;
@@ -406,15 +411,32 @@ void ElaboraRadio() {
     if(msg.destinatario==1) {
       if(msg.mittente==ic) {
         timeoutNodoCorrente=false;
-        if(slave[ic]->fallimenti>0) {displaypollingDaAggiornare=true;}
+        if(slave[ic]->fallimenti>0) 
+        {
+          displaypollingDaAggiornare=true;
+          Serial.print("K ");
+          Serial.println(ic);
+        }
         slave[ic]->fallimenti=0;
         switch(msg.tipo)
         {
           case 1:
             // lo slave è in modo nonvoto e invia info sync e batteria
             slave[ic]->deltat=msg.micros-ttx;
+            if(slave[ic]->batteria!=msg.batteria) 
+            {
+              Serial.print("M ");
+              Serial.print(ic);
+              Serial.print(" ");
+              Serial.println(msg.batteria);
+            }
             slave[ic]->batteria=msg.batteria;
-            if(!slave[ic]->sincronizzato) displaypollingDaAggiornare=true;
+            if(!slave[ic]->sincronizzato) 
+            {
+              displaypollingDaAggiornare=true;
+              Serial.print("L ");
+              Serial.println(ic);
+            }
             slave[ic]->sincronizzato=true;
             if (stampadatiradio)
             {
@@ -492,8 +514,8 @@ void PulsanteClickCorto() {
       FineVoto();
       break;
     case FINEVOTO:
-      stato=ZERO;
-      StatoZero();
+      stato=POLLING;
+      PollingIniziato();
       break;
   }
 }
@@ -517,7 +539,6 @@ void StatoZero()
   tft.println(F("1) start polling"));
   tft.println(F("2) modo voto"));
   tft.println(F("3) fine voto"));
-  tft.println(F("4) stand by\n"));
 }
 
 void InizioVoto() {
@@ -537,6 +558,7 @@ void InizioVoto() {
   tft.print(F("Voto in corso:\n"));
   t_inizio_voto=micros();
   displaypollingDaAggiornare=false;
+  Serial.println("H");
 }
 
 void PollingIniziato()
@@ -556,7 +578,7 @@ void PollingIniziato()
   }
   displaypollingDaAggiornare=true;
   ic=1;
-
+  Serial.println("G");
 }
 
 void FineVoto() {
@@ -566,6 +588,7 @@ void FineVoto() {
   tft.print(F("Voto concluso:\n"));
   ttrapolls=intervallopollnormale;
   numerocicli=30;
+  Serial.println("I");
 
 }
 
