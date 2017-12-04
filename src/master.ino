@@ -7,6 +7,7 @@
 #include "TxPkt.h"
 #include "RxPkt.h"
 #include <SPI.h>
+#include <RFM69registers.h>
 
 
 
@@ -114,6 +115,7 @@ bool stampainfosceltarip=false;
 bool stampadatiradio=false;
 bool displaypollingDaAggiornare;
 byte numerocicli; // in modo voto concluso fa alcuni giri per comunicare la fine voto
+float premiotrattadiretta=1.1; // premio per la tx diretta
 
 // eventi comandi seriali
 void serialCmdInizioVoto(int arg_cnt, char **args)
@@ -124,7 +126,10 @@ void serialCmdFineVoto(int arg_cnt, char **args)
 {
     FineVoto();
 }
-
+void serialCmdPrintRadioReg(int arg_cnt, char **args)
+{
+    radio.readAllRegs();
+}
 void serialCmdMemorizzaNumSlave(int arg_cnt, char **args)
 {
     byte nums=atoi((const char *)args[1]);
@@ -135,8 +140,20 @@ void serialCmdMemorizzaNumSlave(int arg_cnt, char **args)
       CreaListaSlave(nums);
       Serial.print(F("e numero memorizzato: "));
       Serial.println(nums);
-      ic=2;
+      ic=1;
     }
+}
+void serialCmdWriteRadioReg(int arg_cnt, char **args)
+{
+    if(arg_cnt!=3) return;
+    byte reg=atoi((const char *)args[1]);
+    byte val=atoi((const char *)args[2]);
+    if(reg<0) return;
+    if(reg>0x71) return;
+    radio.writeReg(reg,val);
+    Serial.print(reg,HEX);
+    Serial.print(" ");
+    Serial.println(val,HEX);
 }
 
 void serialCmdLeggiNumSlave(int arg_cnt, char **args)
@@ -182,7 +199,7 @@ void setup() {
   digitalWrite(LEDROSSO, HIGH);
   digitalWrite(LEDBLU, LOW);
   
-  Serial.begin(9600);
+  Serial.begin(250000);
   Serial.print(F("ns "));
   //lcd.begin(16, 2);
   CreaListaSlave(EEPROM.read(1));
@@ -217,6 +234,8 @@ void setup() {
   cmdAdd("ir", serialCmdStampaInfoRouting);
   cmdAdd("io", serialCmdStampaInfoPoll);
   cmdAdd("ia", serialCmdStampaDatiRadio);
+  cmdAdd("radioreg", serialCmdPrintRadioReg);
+  cmdAdd("writeradioreg", serialCmdWriteRadioReg);
 
   randomSeed(analogRead(0));
 }
@@ -283,7 +302,7 @@ void Poll() {
 
 void ElaboraTimeOutNodoCorrente() {
   slave[ic]->fallimenti++;
-  if(slave[ic]->fallimenti==1) displaypollingDaAggiornare=true;
+  if(slave[ic]->fallimenti==4) displaypollingDaAggiornare=true;
   if(slave[ic]->fallimenti>maxFallimenti)
   {
     slave[ic]->fallimenti=maxFallimenti+numeroSalti;
@@ -298,7 +317,7 @@ void InterrogaNodoCorrente() {
   byte rip=(slave[ic]->indirizzoRipetitoreCorrente==1) ? ic : slave[ic]->indirizzoRipetitoreCorrente;
   radio.send(rip,p.dati,p.len,false);
   ttx=micros();
-  ElaboraRadio();
+  radio.receiveDone();
   if(stampainfopoll) 
     {
       Serial.print("poll");
@@ -320,6 +339,12 @@ void TrovaMigliorRipetitorePerNodo(byte dest) {
   if (slave[dest]->fallimenti==0) return;
   int pmax=0; 
   slave[dest]->indirizzoRipetitoreCorrente=1;
+  if(stampainfosceltarip)
+  {
+    Serial.print("sceltarip per ");
+    Serial.print(dest);
+    Serial.print("\t");
+  }
   for(byte j=0;j<numBestSlave;j++)
   {
     if(slave[dest]->best[j].indirizzo!=0) {
@@ -328,10 +353,9 @@ void TrovaMigliorRipetitorePerNodo(byte dest) {
         if(slave[dest]->best[j].indirizzo!=slave[dest]->indirizzoRipetitoreCorrente)
         {
           int p=(128 + slave[dest]->best[j].segnale) * (128 + slave[slave[dest]->best[j].indirizzo]->segnale);
+          if(slave[dest]->best[j].indirizzo==1) p=p*premiotrattadiretta;
           if(stampainfosceltarip)
           {
-            Serial.print("sceltarip");
-            Serial.print("\t");
             Serial.print(slave[dest]->best[j].indirizzo);
             Serial.print("\t");
             Serial.print(slave[dest]->best[j].segnale,DEC);
@@ -340,7 +364,6 @@ void TrovaMigliorRipetitorePerNodo(byte dest) {
             Serial.print("\t");
             Serial.print(p);
             Serial.print("\t");
-            Serial.println(ttx);
           }
           if (p>pmax) 
           {
@@ -351,11 +374,17 @@ void TrovaMigliorRipetitorePerNodo(byte dest) {
       }
     }
   }
+  if(stampainfosceltarip)
+  {
+    Serial.print("scelto: ");
+    Serial.println(slave[dest]->indirizzoRipetitoreCorrente);
+  }
 }
 
 
 void ElaboraRadio() {
   if(radio.receiveDone()) {
+    if (radio._printpackets) stampapkt(radio.SENDERID,radio.TARGETID,radio.DATA,radio.DATALEN);
     slave[radio.SENDERID]->segnale=radio.RSSI;
     RxPkt msg((byte *)radio.DATA,radio.DATALEN);
     if (stampadatiradio)
@@ -526,6 +555,7 @@ void PollingIniziato()
     slave[j]->sincronizzato=false;
   }
   displaypollingDaAggiornare=true;
+  ic=1;
 
 }
 
@@ -577,13 +607,11 @@ void radioSetup() {
   digitalWrite(RFM69_RST, LOW); 
   delay(100);
   radio.initialize(RF69_868MHZ,1,NETWORKID);
-  /*
-  radio.writeReg(0x03,0x0D); // 9k6
-  radio.writeReg(0x04,0x05);
-  */
-  radio.writeReg(0x03,0x00); // 153k6
-  radio.writeReg(0x04,0xD0);
-  radio.writeReg(0x37,radio.readReg(0x37) | 0b01010000); // data whitening e no address filter
+  radio.writeReg(REG_BITRATEMSB,RF_BITRATEMSB_50000);
+  radio.writeReg(REG_BITRATELSB,RF_BITRATELSB_50000);
+  radio.writeReg(REG_FDEVMSB,RF_FDEVMSB_50000);
+  radio.writeReg(REG_FDEVLSB,RF_FDEVLSB_50000);
+  radio.writeReg(REG_PACKETCONFIG1,RF_PACKET1_FORMAT_VARIABLE | RF_PACKET1_DCFREE_OFF | RF_PACKET1_CRC_ON | RF_PACKET1_CRCAUTOCLEAR_ON | RF_PACKET1_ADRSFILTERING_OFF); // data whitening e no address filter
   radio.setFrequency(FREQUENCY);
   radio.setHighPower(); 
   radio.setPowerLevel(31);
@@ -595,7 +623,7 @@ void AggiornaDisplayPolling() {
   tft.setCursor(0, 17);
   tft.setTextSize(2);
   for (int i=2;i<numero_max_slave+2;i++) {
-    if(slave[i]->fallimenti>0) {
+    if(slave[i]->fallimenti>3) {
       tft.setTextColor(RED);
     } 
     else
@@ -630,5 +658,18 @@ void MostraRisultatiVoto() {
   }
 }
 
-
-
+void stampapkt(byte SENDERID,byte TARGETID, byte *DATA,int DATALEN) {
+Serial.print(F("rxFrame: time/sender/target/dati: "));
+	  Serial.print(micros());
+	  Serial.print("/");
+	  Serial.print(SENDERID);
+	  Serial.print("/");
+	  Serial.print(TARGETID);
+	  Serial.print("/D:");
+	  for (uint8_t i = 0; i < DATALEN; i++){
+	      Serial.print(DATA[i],HEX);
+		  Serial.print("/");
+  	
+	  }
+	  Serial.println("");    
+}
