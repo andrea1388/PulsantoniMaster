@@ -26,7 +26,7 @@ RxPkt::RxPkt(byte *dati,byte len) {
             for(int j=0;j<5;j++)
             {
                 indirizzobest[j]=dati[2*j+3];
-                segnalebest[j]=dati[2*j];
+                segnalebest[j]=dati[2*j+4];
             }
             break;
         case 3:
