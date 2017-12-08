@@ -129,6 +129,10 @@ void serialCmdFineVoto(int arg_cnt, char **args)
     TerminaVoto();
 }
 
+void serialCmdTerminaPolling(int arg_cnt, char **args)
+{
+    TerminaPolling();
+}
 void serialCmdInizioPolling(int arg_cnt, char **args)
 {
   IniziaPolling();
@@ -153,6 +157,22 @@ void serialCmdMemorizzaNumSlave(int arg_cnt, char **args)
 
     }
 }
+
+void serialCmdMemorizzaBaudRate(int arg_cnt, char **args)
+{
+  if(arg_cnt!=2) return;
+  unsigned long int br=atol((const char *)args[1]);
+  if((br<4800) || (br>250000)) {
+    Serial.println(F("e parametro errato"));  
+  } else {
+    EEPROM.put(2,br);
+    Serial.print(F("e baudrate memorizzato: "));
+    Serial.println(br);
+    delay(300);
+    Serial.begin(br);
+  }
+}
+
 void serialCmdWriteRadioReg(int arg_cnt, char **args)
 {
     if(arg_cnt!=3) return;
@@ -205,15 +225,19 @@ void setup() {
   pinMode(LEDVERDE, OUTPUT);
   pinMode(LEDROSSO, OUTPUT);
   pinMode(LEDBLU, OUTPUT);
-  digitalWrite(LEDVERDE, LOW);
-  digitalWrite(LEDROSSO, HIGH);
-  digitalWrite(LEDBLU, LOW);
-  
-  Serial.begin(250000); // http://wormfood.net/avrbaudcalc.php
+  unsigned long int br;
+  EEPROM.get(2,br);
+  if((br<4800) || (br>250000)) {
+    br=9600;
+    EEPROM.put(2,br);
+  }
+  Serial.begin(br); // http://wormfood.net/avrbaudcalc.php
   //lcd.begin(16, 2);
   CreaListaSlave(EEPROM.read(1));
   Serial.print(F("F "));
   Serial.println(numero_max_slave);
+  Serial.print("e baud rate=");
+  Serial.println(br);
 
   //Serial.print("TFT size is "); Serial.print(tft.width()); Serial.print("x"); Serial.println(tft.height());
   tft.reset();
@@ -225,7 +249,9 @@ void setup() {
   radioSetup();
   //radio.readAllRegs();
   radio._printpackets=false;
-  swVoto.cbInizioStatoOn=PulsanteClickCorto;
+  swVoto.cbClickCorto=PulsanteClickCorto;
+  swVoto.cbClickLungo=PulsanteClickLungo;
+  swVoto.tDurataClickLungo=500;
   swVoto.tPeriodoBlackOut=50;
   ttrapolls=1000;
   maxFallimenti=10;
@@ -241,12 +267,15 @@ void setup() {
   cmdAdd("C", serialCmdFineVoto);
   cmdAdd("D", serialCmdMemorizzaNumSlave);
   cmdAdd("E", serialCmdLeggiNumSlave);
+  cmdAdd("R", serialCmdTerminaPolling);
   cmdAdd("ip", serialCmdStampaPacchettiRadio);
   cmdAdd("ir", serialCmdStampaInfoRouting);
   cmdAdd("io", serialCmdStampaInfoPoll);
   cmdAdd("ia", serialCmdStampaDatiRadio);
   cmdAdd("radioreg", serialCmdPrintRadioReg);
   cmdAdd("writeradioreg", serialCmdWriteRadioReg);
+  cmdAdd("br", serialCmdMemorizzaBaudRate);
+  
 
   randomSeed(analogRead(0));
 }
@@ -573,9 +602,14 @@ void PulsanteClickCorto() {
       TerminaVoto();
       break;
     case FINEVOTO:
-      IniziaPolling();
+      stato=ZERO;
+      StatoZero();
       break;
   }
+}
+
+void PulsanteClickLungo() {
+  TerminaPolling();
 }
 
 // gestione Eventi 
@@ -597,6 +631,10 @@ void StatoZero()
   tft.println(F("1) start polling"));
   tft.println(F("2) modo voto"));
   tft.println(F("3) fine voto"));
+  digitalWrite(LEDVERDE, LOW);
+  digitalWrite(LEDROSSO, HIGH);
+  digitalWrite(LEDBLU, LOW);
+  Serial.println("S");
 }
 
 void IniziaVoto()
@@ -623,6 +661,15 @@ void IniziaPolling()
   {
     stato=POLLING;
     PollingIniziato();
+  }
+}
+
+void TerminaPolling()
+{
+  if(stato==POLLING) 
+  {
+    stato=ZERO;
+    StatoZero();
   }
 }
 
@@ -654,6 +701,10 @@ void VotoIniziato() {
   t_inizio_voto=micros();
   displaypollingDaAggiornare=false;
   Serial.println("H");
+  digitalWrite(LEDVERDE, HIGH);
+  digitalWrite(LEDROSSO, LOW);
+  digitalWrite(LEDBLU, LOW);
+
 }
 
 void PollingIniziato()
@@ -676,6 +727,10 @@ void PollingIniziato()
   displaypollingDaAggiornare=true;
   ic=1;
   Serial.println("G");
+  digitalWrite(LEDVERDE, LOW);
+  digitalWrite(LEDROSSO, LOW);
+  digitalWrite(LEDBLU, HIGH);
+
 }
 
 void VotoConcluso() {
@@ -687,6 +742,10 @@ void VotoConcluso() {
   ttrapolls=intervallopollnormale;
   numerocicli=30;
   Serial.println("I");
+  digitalWrite(LEDVERDE, HIGH);
+  digitalWrite(LEDROSSO, HIGH);
+  digitalWrite(LEDBLU, LOW);
+
 
 }
 
