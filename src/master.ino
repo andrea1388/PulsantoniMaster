@@ -81,6 +81,7 @@ Slave::Slave(byte ind) {
   segnale=-127;
   indirizzo=ind;
   oravoto=0;
+  batteria=0;
   for(byte i=0;i<5;i++)
   {
     best[i].segnale=-127;
@@ -129,9 +130,9 @@ void serialCmdFineVoto(int arg_cnt, char **args)
     TerminaVoto();
 }
 
-void serialCmdTerminaPolling(int arg_cnt, char **args)
+void serialCmdStato0(int arg_cnt, char **args)
 {
-    TerminaPolling();
+    VaiaStato0();
 }
 void serialCmdInizioPolling(int arg_cnt, char **args)
 {
@@ -267,7 +268,7 @@ void setup() {
   cmdAdd("C", serialCmdFineVoto);
   cmdAdd("D", serialCmdMemorizzaNumSlave);
   cmdAdd("E", serialCmdLeggiNumSlave);
-  cmdAdd("R", serialCmdTerminaPolling);
+  cmdAdd("R", serialCmdStato0);
   cmdAdd("ip", serialCmdStampaPacchettiRadio);
   cmdAdd("ir", serialCmdStampaInfoRouting);
   cmdAdd("io", serialCmdStampaInfoPoll);
@@ -499,6 +500,8 @@ void ElaboraRadio() {
               Serial.print("L ");
               Serial.print(ic);
               Serial.print(" ");
+              Serial.print(slave[ic]->batteria);
+              Serial.print(" ");
               Serial.println(radio.RSSI);
             }
             slave[ic]->sincronizzato=true;
@@ -673,6 +676,12 @@ void TerminaPolling()
   }
 }
 
+void VaiaStato0()
+{
+    stato=ZERO;
+    StatoZero();
+}
+
 void TerminaVoto()
 {
   if(stato==VOTO) 
@@ -682,10 +691,11 @@ void TerminaVoto()
   }
 }
 void VotoIniziato() {
-  byte j;
+  byte j,ammessialvoto=0;
   for(j=2;j<numero_max_slave+2;j++) 
   {
     slave[j]->votato=false;
+    if(slave[j]->sincronizzato) ammessialvoto++;
   }
   ttrapolls=intervallopollvoto;
   for(j=0;j<5;j++) 
@@ -700,7 +710,8 @@ void VotoIniziato() {
   tft.print(F("Voto in corso:\n"));
   t_inizio_voto=micros();
   displaypollingDaAggiornare=false;
-  Serial.println("H");
+  Serial.print("H ");
+  Serial.println(ammessialvoto);
   digitalWrite(LEDVERDE, HIGH);
   digitalWrite(LEDROSSO, LOW);
   digitalWrite(LEDBLU, LOW);
