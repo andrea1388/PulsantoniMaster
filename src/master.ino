@@ -257,8 +257,8 @@ void setup() {
   ttrapolls=1000;
   maxFallimenti=10;
   numeroSalti=10;
-  intervallopollnormale=1000;
-  intervallopollvoto=100;
+  intervallopollnormale=200;
+  intervallopollvoto=50;
   stato=ZERO;
   StatoZero();
 
@@ -345,6 +345,7 @@ void ElaboraTimeOutNodoCorrente() {
   slave[ic]->fallimenti++;
   if(slave[ic]->fallimenti==4)
   {
+    slave[ic]->sincronizzato=false;
     displaypollingDaAggiornare=true;  
     Serial.print("J ");
     Serial.println(ic);
@@ -352,7 +353,7 @@ void ElaboraTimeOutNodoCorrente() {
   if(slave[ic]->fallimenti>maxFallimenti)
   {
     slave[ic]->fallimenti=maxFallimenti+numeroSalti;
-    slave[ic]->sincronizzato=false;
+    
   } 
   
 }
@@ -368,15 +369,15 @@ void InterrogaNodoCorrente() {
   if(stampainfopoll) 
     {
       Serial.print("poll");
-      Serial.print("\t");
+      Serial.print(" ");
       Serial.print(slave[ic]->indirizzo);
-      Serial.print("\t");
+      Serial.print(" ");
       Serial.print(rip);
-      Serial.print("\t");
+      Serial.print(" ");
       Serial.print(slave[ic]->fallimenti);
-      Serial.print("\t");
+      Serial.print(" ");
       Serial.print(slave[ic]->sincronizzato);
-      Serial.print("\t");
+      Serial.print(" ");
       Serial.println(ttx);
     }
 }
